@@ -2,88 +2,72 @@ package me.project;
 
 import com.sun.jna.Native;
 import com.sun.net.httpserver.HttpServer;
-import me.project.http.*; // Импорт обработчиков (CompileHandler, ListHandler и т.д.)
+import me.project.http.*;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.*;
 
 public class ChatServer {
     public static final int PORT = 8888;
     public static final int HTTP_PORT = 8081;
 
-    // --- Определение Операционной Системы ---
     public static final String OS = System.getProperty("os.name").toLowerCase();
     public static final boolean IS_WIN = OS.contains("win");
     public static final boolean IS_MAC = OS.contains("mac");
     public static final String LIB_EXT = IS_WIN ? ".dll" : (IS_MAC ? ".dylib" : ".so");
 
-    // --- Глобальные хранилища (Public Static) ---
-    // Хранит загруженные плагины (доступна для ListHandler, DeleteHandler, CompileHandler)
     public static final Map<String, LoadedPlugin> plugins = new ConcurrentHashMap<>();
-
-    // Хранит подключенных клиентов чата
     public static final Set<ClientHandler> clients = new CopyOnWriteArraySet<>();
+
+    // --- НОВЫЕ ФУНКЦИИ ---
+    // 1. Память IP: IP -> Последний Никнейм
+    public static final Map<String, String> ipHistory = new ConcurrentHashMap<>();
+
+    // 2. Оффлайн сообщения: Никнейм -> Список сообщений
+    public static final Map<String, List<String>> offlineMessages = new ConcurrentHashMap<>();
+    // ---------------------
 
     public static void main(String[] args) throws IOException {
         System.setProperty("jna.encoding", "UTF-8");
-
-        // 1. Подготовка папки для плагинов
         File pluginDir = new File("plugins");
         if (!pluginDir.exists()) pluginDir.mkdirs();
 
-        // Очистка мусора (.trash файлов) перед запуском
+        // Очистка .trash
         File[] trashFiles = pluginDir.listFiles((dir, name) -> name.endsWith(".trash"));
-        if (trashFiles != null) {
-            for (File f : trashFiles) f.delete();
-        }
+        if (trashFiles != null) for (File f : trashFiles) f.delete();
 
-        // 👇 ДОБАВЬТЕ ЭТОТ БЛОК:
-        // Очистка старых .cpp файлов, оставшихся от ошибок
+        // Очистка .cpp
         File[] tempCppFiles = pluginDir.listFiles((dir, name) -> name.endsWith(".cpp") && name.startsWith("temp_"));
-        if (tempCppFiles != null) {
-            for (File f : tempCppFiles) {
-                f.delete();
-                System.out.println(" [Cleanup] Deleted garbage file: " + f.getName());
-            }
-        }
+        if (tempCppFiles != null) for (File f : tempCppFiles) f.delete();
 
-        // 2. Загрузка уже существующих плагинов
         System.out.println("Scanning for plugins...");
         File[] files = pluginDir.listFiles((dir, name) -> name.endsWith(LIB_EXT));
         if (files != null) {
             for (File f : files) {
                 try {
                     PluginInterface lib = Native.load(f.getAbsolutePath(), PluginInterface.class);
-                    // Используем класс LoadedPlugin (он должен быть в отдельном файле me.project.LoadedPlugin)
                     LoadedPlugin plugin = new LoadedPlugin(lib, f.getName());
                     plugins.put(plugin.name, plugin);
                     System.out.println(" [+] Loaded #" + plugin.name);
                 } catch (Throwable e) {
-                    System.err.println(" [-] Error loading " + f.getName() + ": " + e.getMessage());
+                    System.err.println(" [-] Error loading " + f.getName());
                 }
             }
         }
 
-        // 3. Запуск HTTP Web-интерфейса
         HttpServer httpServer = HttpServer.create(new InetSocketAddress(HTTP_PORT), 0);
-
-        // --- РЕГИСТРАЦИЯ ПУТЕЙ (Вот здесь была проблема 404) ---
         httpServer.createContext("/", new FrontendHandler());
-        httpServer.createContext("/compile", new CompileHandler()); // <--- ОБЯЗАТЕЛЬНО!
+        httpServer.createContext("/compile", new CompileHandler());
         httpServer.createContext("/list", new ListHandler());
         httpServer.createContext("/delete", new DeleteHandler());
-        // --------------------------------------------------------
-
         httpServer.setExecutor(null);
         httpServer.start();
-        System.out.println("HTTP Web Interface started: http://localhost:" + HTTP_PORT);
+        System.out.println("HTTP Interface: http://localhost:" + HTTP_PORT);
 
-        // 4. Запуск TCP Chat-сервера
         ServerSocket serverSocket = new ServerSocket(PORT);
         System.out.println("Chat Server started on port " + PORT);
 
@@ -95,26 +79,59 @@ public class ChatServer {
         }
     }
 
-    // Метод для рассылки сообщений всем
+    // Обновленный Broadcast с поддержкой Черного списка и Любимых авторов
     public static void broadcast(String msg, String senderName, boolean isSystem) {
-        String finalMsg = isSystem ? "\u001B[32m[SYSTEM] " + msg + "\u001B[0m" : msg;
+        String finalMsg;
+        if (isSystem) {
+            finalMsg = "\u001B[32m[SYSTEM] " + msg + "\u001B[0m"; // Зеленый
+        } else {
+            finalMsg = msg;
+        }
+
         for (ClientHandler client : clients) {
-            if (!isSystem && client.blacklist.contains(senderName)) continue;
+            if (!isSystem) {
+                // Реализация черного списка
+                if (client.blacklist.contains(senderName)) continue;
+
+                // Подсветка любимого автора (Золотой цвет)
+                if (client.favorites.contains(senderName)) {
+                    client.sendMessage("\u001B[33m⭐ " + msg + "\u001B[0m");
+                    continue;
+                }
+            }
             client.sendMessage(finalMsg);
         }
     }
 
-    // Метод для личных сообщений
+    // Обновленная приватная отправка (теперь поддерживает оффлайн)
     public static void sendPrivate(ClientHandler sender, String targetName, String msg) {
         String formattedMsg = "\u001B[35m(Private) " + sender.username + ": " + msg + "\u001B[0m";
-        boolean found = false;
+        boolean online = false;
+
+        // 1. Пытаемся отправить онлайн
         for (ClientHandler client : clients) {
             if (client.username.equals(targetName)) {
                 client.sendMessage(formattedMsg);
-                found = true;
+                online = true;
                 break;
             }
         }
-        if (!found) sender.sendMessage("User offline/not found.");
+
+        // 2. Если пользователя нет - сохраняем в оффлайн (Отложенная отправка)
+        if (!online) {
+            offlineMessages.putIfAbsent(targetName, new ArrayList<>());
+            List<String> userMailbox = offlineMessages.get(targetName);
+
+            synchronized (userMailbox) {
+                if (userMailbox.size() >= 10) {
+                    sender.sendMessage("❌ Ошибка: Ящик пользователя " + targetName + " переполнен (макс 10).");
+                } else {
+                    userMailbox.add("\u001B[35m(Offline) " + sender.username + ": " + msg + "\u001B[0m");
+                    sender.sendMessage("💤 Пользователь оффлайн. Сообщение сохранено (" + userMailbox.size() + "/10).");
+                }
+            }
+        } else {
+            sender.sendMessage("(Sent to " + targetName + ")");
+        }
     }
 }

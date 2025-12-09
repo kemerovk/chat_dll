@@ -25,7 +25,7 @@ public class DeleteHandler implements HttpHandler {
                 } else {
                     File trash = new File("plugins", p.filename + ".trash");
                     f.renameTo(trash);
-                    status = "Выгружено (удаление после перезапуска).";
+                    status = "Удалено.";
                 }
 
                 ChatServer.broadcast("🗑️ Плагин #" + cmdName + " удален.", "System", true);

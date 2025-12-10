@@ -4,87 +4,178 @@
     <meta charset="UTF-8">
     <title>Plugin Manager</title>
     <style>
-        body { font-family: sans-serif; background: #222; color: #ccc; padding: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #333; }
-        th, td { padding: 10px; border: 1px solid #444; text-align: left; }
-        th { background: #444; color: #fff; }
+        body { font-family: 'Segoe UI', sans-serif; background: #222; color: #ccc; padding: 0; margin: 0; }
 
-        .btn { padding: 5px 10px; cursor: pointer; border: none; color: white; border-radius: 3px; margin-right: 5px; }
+        .container { max-width: 900px; margin: 30px auto; background: #2d2d2d; padding: 20px; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+
+        /* Вкладки */
+        .tabs { display: flex; border-bottom: 2px solid #444; margin-bottom: 20px; }
+        .tab-btn {
+            background: none; border: none; padding: 10px 20px; color: #888;
+            cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.3s;
+        }
+        .tab-btn:hover { color: #fff; background: rgba(255,255,255,0.05); }
+        .tab-btn.active { color: #007bff; border-bottom: 2px solid #007bff; margin-bottom: -2px; }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Таблица */
+        table { width: 100%; border-collapse: collapse; background: #333; table-layout: fixed; }
+        th, td { padding: 12px; border: 1px solid #444; text-align: left; }
+        th { background: #3a3a3a; color: #fff; }
+
+        /* Колонки таблицы */
+        th:nth-child(1) { width: 15%; } /* Команда */
+        th:nth-child(2) { width: 45%; } /* Описание */
+        th:nth-child(3) { width: 10%; } /* Статус */
+        th:nth-child(4) { width: 30%; } /* Действия */
+
+        /* Кнопки */
+        .btn { padding: 6px 12px; cursor: pointer; border: none; color: white; border-radius: 4px; margin-right: 5px; font-size: 14px; }
         .btn-load { background: #28a745; }
+        .btn-load:hover { background: #218838; }
         .btn-unload { background: #ffc107; color: #000; }
+        .btn-unload:hover { background: #e0a800; }
         .btn-del { background: #dc3545; }
+        .btn-del:hover { background: #c82333; }
+        .btn-compile { background: #007bff; padding: 10px 20px; font-size: 16px; margin-top: 10px; }
+        .btn-compile:hover { background: #0056b3; }
 
+        /* Статусы */
         .status-active { color: #28a745; font-weight: bold; }
-        .status-inactive { color: #777; font-style: italic; }
+        .status-inactive { color: #888; font-style: italic; }
+
+        /* Редактор */
+        textarea {
+            width: 100%; height: 300px;
+            background: #1e1e1e; color: #d4d4d4;
+            border: 1px solid #444; font-family: monospace;
+            padding: 10px; box-sizing: border-box;
+            border-radius: 4px;
+        }
+
+        #global-status {
+            min-height: 20px; margin-bottom: 15px; font-family: monospace; color: #aaa;
+        }
     </style>
 </head>
 <body>
 
-<h2>Управление плагинами</h2>
-<div id="status" style="height: 20px; color: #aaa;"></div>
+<div class="container">
+    <h2>Сервер чата: Панель администратора</h2>
+    <div id="global-status"></div>
 
-<table>
-    <thead>
-    <tr>
-        <th>Файл</th>
-        <th>Команда</th>
-        <th>Описание</th>
-        <th>Статус</th>
-        <th>Действия</th>
-    </tr>
-    </thead>
-    <tbody id="list"></tbody>
-</table>
+    <div class="tabs">
+        <button class="tab-btn active" onclick="openTab('create')">📝 Создать (Компиляция)</button>
+        <button class="tab-btn" onclick="openTab('manage')">⚙️ Управление плагинами</button>
+    </div>
 
-<hr>
-<h3>Загрузить новый (Компиляция)</h3>
-<textarea id="code" style="width:100%; height:150px; background:#111; color:#0f0; border:1px solid #555;">
+    <!-- Вкладка 1: Создание -->
+    <div id="create" class="tab-content active">
+        <p>Введите код C++ ниже. Не забудьте указать <code>get_name</code> и <code>get_description</code>.</p>
+        <textarea id="code" spellcheck="false">
 #include "api.h"
 #include <string>
-extern "C" EXPORT const char* get_name() { return "test"; }
-extern "C" EXPORT const char* get_description() { return "New plugin"; }
-extern "C" EXPORT const char* handle_message(const char* s, const char* t) { return "Works!"; }
-</textarea>
-<button onclick="compile()" style="margin-top:10px; padding:10px 20px;">Скомпилировать</button>
+
+// Имя команды (без #)
+extern "C" EXPORT const char* get_name() {
+    return "test";
+}
+
+// Описание
+extern "C" EXPORT const char* get_description() {
+    return "Тестовый плагин";
+}
+
+// Логика
+extern "C" EXPORT const char* handle_message(const char* sender, const char* text) {
+    return "Плагин работает!";
+}
+        </textarea>
+        <button class="btn btn-compile" onclick="compile()">Скомпилировать и Загрузить</button>
+    </div>
+
+    <!-- Вкладка 2: Управление -->
+    <div id="manage" class="tab-content">
+        <button onclick="loadList()" class="btn" style="background:#555; margin-bottom:10px;">↻ Обновить список</button>
+        <table>
+            <thead>
+            <tr>
+                <!-- СТОЛБЕЦ "ФАЙЛ" УДАЛЕН -->
+                <th>Команда</th>
+                <th>Описание</th>
+                <th>Статус</th>
+                <th>Действия</th>
+            </tr>
+            </thead>
+            <tbody id="list"></tbody>
+        </table>
+    </div>
+</div>
 
 <script>
+    function openTab(tabName) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+
+        document.getElementById(tabName).classList.add('active');
+
+        const btns = document.querySelectorAll('.tab-btn');
+        if (tabName === 'create') btns[0].classList.add('active');
+        if (tabName === 'manage') {
+            btns[1].classList.add('active');
+            loadList();
+        }
+    }
+
     function loadList() {
+        const list = document.getElementById('list');
+        list.innerHTML = '<tr><td colspan="4" style="text-align:center">Загрузка...</td></tr>';
+
         fetch('/list').then(r => r.json()).then(data => {
-            const list = document.getElementById('list');
             list.innerHTML = "";
+            if (data.length === 0) {
+                list.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#777;">Нет плагинов</td></tr>';
+                return;
+            }
+
             data.forEach(p => {
                 let actions = "";
 
+                // Мы всё еще используем p.filename для логики кнопок, но не выводим его в таблицу
                 if (p.status === 'active') {
-                    // Если активен: Выключить | Удалить
-                    actions += `<button class="btn btn-unload" onclick="doAction('unload', '${p.filename}', '${p.cmd}')">Выключить</button>`;
+                    actions += `<button class="btn btn-unload" onclick="doAction('unload', '${p.filename}', '${p.cmd}')">Выкл</button>`;
                     actions += `<button class="btn btn-del" onclick="doAction('delete', '${p.filename}', '${p.cmd}')">Удалить</button>`;
                 } else {
-                    // Если выключен: Включить | Удалить
-                    actions += `<button class="btn btn-load" onclick="doAction('load', '${p.filename}', '')">Включить</button>`;
+                    actions += `<button class="btn btn-load" onclick="doAction('load', '${p.filename}', '')">Вкл</button>`;
                     actions += `<button class="btn btn-del" onclick="doAction('delete', '${p.filename}', '')">Удалить</button>`;
                 }
 
+                const cmdDisplay = p.cmd ? `<span style="font-weight:bold; color:#fff">#${p.cmd}</span>` : `<span style="color:#777">(Нет команды)</span>`;
+
+                // Убрана ячейка с именем файла
                 const row = `<tr>
-                    <td>${p.filename}</td>
-                    <td>${p.cmd ? '#' + p.cmd : '-'}</td>
+                    <td>${cmdDisplay}</td>
                     <td>${p.desc}</td>
                     <td class="status-${p.status}">${p.status.toUpperCase()}</td>
                     <td>${actions}</td>
                 </tr>`;
                 list.innerHTML += row;
             });
+        }).catch(err => {
+            list.innerHTML = '<tr><td colspan="4" style="color:red">Ошибка подключения к серверу</td></tr>';
         });
     }
 
     function doAction(action, filename, cmd) {
-        if(action === 'delete' && !confirm('Удалить файл навсегда?')) return;
+        if(action === 'delete' && !confirm('Удалить этот плагин навсегда?')) return;
 
         fetch('/manage', {
             method: 'POST',
             body: `action=${action}&file=${encodeURIComponent(filename)}&cmd=${encodeURIComponent(cmd)}`
         }).then(r => r.text()).then(msg => {
-            document.getElementById('status').innerText = msg;
+            document.getElementById('global-status').innerText = msg;
             loadList();
         });
     }
@@ -92,15 +183,28 @@ extern "C" EXPORT const char* handle_message(const char* s, const char* t) { ret
     function compile() {
         const code = document.getElementById('code').value;
         const fname = "plugin_" + Date.now();
-        fetch('/compile', { method:'POST', body:`filename=${fname}&code=${encodeURIComponent(code)}` })
+        const statusDiv = document.getElementById('global-status');
+
+        statusDiv.innerText = "Компиляция...";
+
+        fetch('/compile', {
+            method:'POST',
+            body:`filename=${fname}&code=${encodeURIComponent(code)}`
+        })
             .then(r => r.text())
             .then(msg => {
-                document.getElementById('status').innerText = msg;
-                loadList();
+                statusDiv.innerText = msg;
+                if (msg.includes("Success") || msg.includes("успешно")) {
+                    statusDiv.style.color = "#28a745";
+                } else {
+                    statusDiv.style.color = "#dc3545";
+                }
+            })
+            .catch(e => {
+                statusDiv.innerText = "Ошибка сети";
+                statusDiv.style.color = "#dc3545";
             });
     }
-
-    loadList();
 </script>
 
 </body>

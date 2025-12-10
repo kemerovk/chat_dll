@@ -1,11 +1,9 @@
 package me.project.http;
 
-import com.sun.jna.Native;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import me.project.ChatServer;
 import me.project.LoadedPlugin;
-import me.project.PluginInterface;
 
 import java.io.*;
 import java.net.URLDecoder;
@@ -17,70 +15,60 @@ public class CompileHandler implements HttpHandler {
     public void handle(HttpExchange t) throws IOException {
         if ("POST".equals(t.getRequestMethod())) {
             Map<String, String> params = parse(readBody(t));
-            // Запускаем компиляцию
             String result = compile(params.get("filename"), params.get("code"));
             sendResponse(t, result);
         }
     }
 
     private String compile(String filename, String code) {
-        // Создаем объект файла заранее, чтобы он был доступен в finally
         File src = new File("plugins", "temp_" + filename + ".cpp");
-
         try {
-            // 1. Записываем код в файл
             String fullCode = "#include \"api.h\"\n#include <string>\n#include <vector>\nusing namespace std;\n" + code;
             try (PrintWriter w = new PrintWriter(src, StandardCharsets.UTF_8)) {
                 w.println(fullCode);
             }
 
-            // 2. Подготовка команды компиляции
             File out = new File("plugins", filename + ChatServer.LIB_EXT);
+            if (out.exists()) out.delete();
 
             List<String> cmd = new ArrayList<>(Arrays.asList(
                     "g++", "-shared", "-o", out.getAbsolutePath(), src.getAbsolutePath(), "-I."
             ));
 
-            // Настройки для разных ОС
             if (!ChatServer.IS_WIN) cmd.add("-fPIC");
             if (ChatServer.IS_MAC) { cmd.add("-undefined"); cmd.add("dynamic_lookup"); }
 
-            // 3. Запуск процесса
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.redirectErrorStream(true);
             pb.directory(new File("."));
             Process p = pb.start();
 
-            // Читаем вывод компилятора (ошибки)
             BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8));
             StringBuilder sb = new StringBuilder();
-            String line;
-            while((line = br.readLine()) != null) sb.append(line).append("\n");
+            String line; while((line = br.readLine()) != null) sb.append(line).append("\n");
 
-            // 4. Проверка результата
             if (p.waitFor() == 0) {
-                // Успех! Загружаем плагин
-                PluginInterface lib = Native.load(out.getAbsolutePath(), PluginInterface.class);
-                LoadedPlugin lp = new LoadedPlugin(lib, out.getName());
-                ChatServer.plugins.put(lp.name, lp);
-                ChatServer.broadcast("🔌 Плагин #" + lp.name + " успешно загружен!", "System", true);
-                return "Success";
+                // ИСПОЛЬЗУЕМ ВОЗВРАЩЕННЫЙ ОБЪЕКТ
+                LoadedPlugin lp = ChatServer.loadPluginSafe(out);
+
+                if (lp != null) {
+                    ChatServer.broadcast("🔌 Плагин #" + lp.name + " скомпилирован и загружен!", "System", true);
+                    return "Success";
+                } else {
+                    return "Error: Plugin loaded but returned null (check console)";
+                }
             } else {
-                // Ошибка компиляции
                 return "Compile Error:\n" + sb.toString();
             }
 
         } catch (Exception e) {
             return "System Error: " + e.getMessage();
         } finally {
-            // --- ВАЖНО: ЭТОТ БЛОК ВЫПОЛНЯЕТСЯ ВСЕГДА ---
-            // Удаляем .cpp файл, даже если была ошибка
-            if (src.exists()) {
-                src.delete();
-            }
+            if (src.exists()) src.delete();
         }
     }
 
+    // Стандартные методы readBody, sendResponse, parse
     private String readBody(HttpExchange t) throws IOException {
         try (BufferedReader br = new BufferedReader(new InputStreamReader(t.getRequestBody(), StandardCharsets.UTF_8))) {
             StringBuilder body = new StringBuilder();

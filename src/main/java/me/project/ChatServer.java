@@ -8,6 +8,8 @@ import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -22,48 +24,30 @@ public class ChatServer {
 
     public static final Map<String, LoadedPlugin> plugins = new ConcurrentHashMap<>();
     public static final Set<ClientHandler> clients = new CopyOnWriteArraySet<>();
-
-    // --- НОВЫЕ ФУНКЦИИ ---
-    // 1. Память IP: IP -> Последний Никнейм
     public static final Map<String, String> ipHistory = new ConcurrentHashMap<>();
-
-    // 2. Оффлайн сообщения: Никнейм -> Список сообщений
     public static final Map<String, List<String>> offlineMessages = new ConcurrentHashMap<>();
-    // ---------------------
 
     public static void main(String[] args) throws IOException {
         System.setProperty("jna.encoding", "UTF-8");
         File pluginDir = new File("plugins");
         if (!pluginDir.exists()) pluginDir.mkdirs();
 
-        // Очистка .trash
-        File[] trashFiles = pluginDir.listFiles((dir, name) -> name.endsWith(".trash"));
-        if (trashFiles != null) for (File f : trashFiles) f.delete();
-
-        // Очистка .cpp
-        File[] tempCppFiles = pluginDir.listFiles((dir, name) -> name.endsWith(".cpp") && name.startsWith("temp_"));
-        if (tempCppFiles != null) for (File f : tempCppFiles) f.delete();
+        File[] junk = pluginDir.listFiles((dir, name) ->
+                name.endsWith(".trash") || name.contains("loaded_copy_") || (name.endsWith(".cpp") && name.startsWith("temp_"))
+        );
+        if (junk != null) for (File f : junk) f.delete();
 
         System.out.println("Scanning for plugins...");
-        File[] files = pluginDir.listFiles((dir, name) -> name.endsWith(LIB_EXT));
+        File[] files = pluginDir.listFiles((dir, name) -> name.endsWith(LIB_EXT) && !name.contains("loaded_copy_"));
         if (files != null) {
-            for (File f : files) {
-                try {
-                    PluginInterface lib = Native.load(f.getAbsolutePath(), PluginInterface.class);
-                    LoadedPlugin plugin = new LoadedPlugin(lib, f.getName());
-                    plugins.put(plugin.name, plugin);
-                    System.out.println(" [+] Loaded #" + plugin.name);
-                } catch (Throwable e) {
-                    System.err.println(" [-] Error loading " + f.getName());
-                }
-            }
+            for (File f : files) loadPluginSafe(f);
         }
 
         HttpServer httpServer = HttpServer.create(new InetSocketAddress(HTTP_PORT), 0);
         httpServer.createContext("/", new FrontendHandler());
         httpServer.createContext("/compile", new CompileHandler());
         httpServer.createContext("/list", new ListHandler());
-        httpServer.createContext("/delete", new DeleteHandler());
+        httpServer.createContext("/manage", new ManageHandler());
         httpServer.setExecutor(null);
         httpServer.start();
         System.out.println("HTTP Interface: http://localhost:" + HTTP_PORT);
@@ -79,36 +63,54 @@ public class ChatServer {
         }
     }
 
-    // Обновленный Broadcast с поддержкой Черного списка и Любимых авторов
-    public static void broadcast(String msg, String senderName, boolean isSystem) {
-        String finalMsg;
-        if (isSystem) {
-            finalMsg = "\u001B[32m[SYSTEM] " + msg + "\u001B[0m"; // Зеленый
-        } else {
-            finalMsg = msg;
+    // --- ИЗМЕНЕНИЕ ЗДЕСЬ: Возвращаем LoadedPlugin ---
+    public static LoadedPlugin loadPluginSafe(File originalFile) {
+        try {
+            String tempName = "loaded_copy_" + System.currentTimeMillis() + "_" + originalFile.getName();
+            File tempFile = new File(originalFile.getParentFile(), tempName);
+            Files.copy(originalFile.toPath(), tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+            PluginInterface lib = Native.load(tempFile.getAbsolutePath(), PluginInterface.class);
+            LoadedPlugin plugin = new LoadedPlugin(lib, originalFile.getName(), tempFile);
+
+            plugins.put(plugin.name, plugin);
+            System.out.println(" [+] Loaded #" + plugin.name);
+
+            tempFile.deleteOnExit();
+
+            return plugin; // <-- ВОЗВРАЩАЕМ ОБЪЕКТ
+        } catch (Throwable e) {
+            System.err.println(" [-] Error loading " + originalFile.getName() + ": " + e.getMessage());
+            return null; // <-- Возвращаем null при ошибке
         }
+    }
 
-        for (ClientHandler client : clients) {
-            if (!isSystem) {
-                // Реализация черного списка
-                if (client.blacklist.contains(senderName)) continue;
-
-                // Подсветка любимого автора (Золотой цвет)
-                if (client.favorites.contains(senderName)) {
-                    client.sendMessage("\u001B[33m⭐ " + msg + "\u001B[0m");
-                    continue;
+    public static void unloadPlugin(String cmdName) {
+        LoadedPlugin p = plugins.remove(cmdName);
+        if (p != null) {
+            if (p.tempFile != null && p.tempFile.exists()) {
+                if (!p.tempFile.delete()) {
+                    File trash = new File(p.tempFile.getParent(), p.tempFile.getName() + ".trash");
+                    p.tempFile.renameTo(trash);
+                    trash.deleteOnExit();
                 }
             }
+            broadcast("🔌 Плагин #" + cmdName + " выключен.", "System", true);
+        }
+    }
+
+    public static void broadcast(String msg, String senderName, boolean isSystem) {
+        String finalMsg = isSystem ? "\u001B[32m[SYSTEM] " + msg + "\u001B[0m" : msg;
+        for (ClientHandler client : clients) {
+            if (!isSystem && (client.blacklist.contains(senderName))) continue;
+            if (!isSystem && client.favorites.contains(senderName)) { client.sendMessage("\u001B[33m⭐ " + msg + "\u001B[0m"); continue; }
             client.sendMessage(finalMsg);
         }
     }
 
-    // Обновленная приватная отправка (теперь поддерживает оффлайн)
     public static void sendPrivate(ClientHandler sender, String targetName, String msg) {
         String formattedMsg = "\u001B[35m(Private) " + sender.username + ": " + msg + "\u001B[0m";
         boolean online = false;
-
-        // 1. Пытаемся отправить онлайн
         for (ClientHandler client : clients) {
             if (client.username.equals(targetName)) {
                 client.sendMessage(formattedMsg);
@@ -116,22 +118,16 @@ public class ChatServer {
                 break;
             }
         }
-
-        // 2. Если пользователя нет - сохраняем в оффлайн (Отложенная отправка)
         if (!online) {
             offlineMessages.putIfAbsent(targetName, new ArrayList<>());
-            List<String> userMailbox = offlineMessages.get(targetName);
-
-            synchronized (userMailbox) {
-                if (userMailbox.size() >= 10) {
-                    sender.sendMessage("❌ Ошибка: Ящик пользователя " + targetName + " переполнен (макс 10).");
-                } else {
-                    userMailbox.add("\u001B[35m(Offline) " + sender.username + ": " + msg + "\u001B[0m");
-                    sender.sendMessage("💤 Пользователь оффлайн. Сообщение сохранено (" + userMailbox.size() + "/10).");
+            List<String> box = offlineMessages.get(targetName);
+            synchronized (box) {
+                if (box.size() >= 10) sender.sendMessage("❌ Mailbox full.");
+                else {
+                    box.add("\u001B[35m(Offline) " + sender.username + ": " + msg + "\u001B[0m");
+                    sender.sendMessage("💤 Saved offline.");
                 }
             }
-        } else {
-            sender.sendMessage("(Sent to " + targetName + ")");
         }
     }
 }

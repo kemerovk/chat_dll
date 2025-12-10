@@ -1,276 +1,106 @@
-
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Panel - Chat Plugins</title>
+    <title>Plugin Manager</title>
     <style>
-        :root {
-            --bg: #1e1e1e;
-            --panel: #252526;
-            --text: #cccccc;
-            --accent: #007acc;
-            --border: #3e3e42;
-            --danger: #d32f2f;
-            --success: #4caf50;
-        }
+        body { font-family: sans-serif; background: #222; color: #ccc; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #333; }
+        th, td { padding: 10px; border: 1px solid #444; text-align: left; }
+        th { background: #444; color: #fff; }
 
-        body {
-            font-family: 'Segoe UI', sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }
+        .btn { padding: 5px 10px; cursor: pointer; border: none; color: white; border-radius: 3px; margin-right: 5px; }
+        .btn-load { background: #28a745; }
+        .btn-unload { background: #ffc107; color: #000; }
+        .btn-del { background: #dc3545; }
 
-        .container {
-            width: 800px;
-            background: var(--panel);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            height: 600px;
-        }
-
-        /* TABS HEADER */
-        .tabs {
-            display: flex;
-            background: #2d2d2d;
-            border-bottom: 1px solid var(--border);
-        }
-        .tab-btn {
-            background: transparent;
-            border: none;
-            color: #888;
-            padding: 15px 30px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: 500;
-            transition: all 0.2s;
-            border-bottom: 3px solid transparent;
-        }
-        .tab-btn:hover {
-            color: #fff;
-            background: rgba(255,255,255,0.05);
-        }
-        .tab-btn.active {
-            color: #fff;
-            border-bottom-color: var(--accent);
-        }
-
-        /* TABS CONTENT */
-        .tab-content {
-            display: none;
-            padding: 20px;
-            flex-grow: 1;
-            overflow-y: auto;
-        }
-        .tab-content.active {
-            display: flex;
-            flex-direction: column;
-        }
-
-        /* EDITOR STYLES */
-        textarea {
-            flex-grow: 1;
-            background: #1e1e1e;
-            color: #d4d4d4;
-            border: 1px solid var(--border);
-            padding: 15px;
-            font-family: 'Consolas', monospace;
-            resize: none;
-            border-radius: 4px;
-            margin-bottom: 15px;
-        }
-        .actions { display: flex; justify-content: space-between; align-items: center; }
-
-        button.action-btn {
-            background: var(--accent);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-        button.action-btn:disabled { background: #555; }
-
-        /* LIST STYLES */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th, td {
-            text-align: left;
-            padding: 12px;
-            border-bottom: 1px solid var(--border);
-        }
-        th { color: var(--accent); }
-        .del-btn {
-            background: transparent;
-            border: 1px solid var(--danger);
-            color: var(--danger);
-            padding: 5px 10px;
-            cursor: pointer;
-            border-radius: 4px;
-        }
-        .del-btn:hover { background: var(--danger); color: white; }
-
-        .status { margin-left: 10px; font-size: 14px; }
-        .status.ok { color: var(--success); }
-        .status.err { color: var(--danger); }
+        .status-active { color: #28a745; font-weight: bold; }
+        .status-inactive { color: #777; font-style: italic; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <div class="tabs">
-        <button class="tab-btn active" onclick="openTab('create')">📝 Создать Плагин</button>
-        <button class="tab-btn" onclick="openTab('manage')">⚙️ Управление DLL</button>
-    </div>
+<h2>Управление плагинами</h2>
+<div id="status" style="height: 20px; color: #aaa;"></div>
 
-    <!-- Вкладка 1: Создание -->
-    <div id="create" class="tab-content active">
-        <p style="margin-top:0; color:#888; font-size:14px;">
-            Вставьте код C++. Имя команды и описание определяются функциями <code>get_name()</code> и <code>get_description()</code>.
-        </p>
-        <textarea id="code" spellcheck="false">
+<table>
+    <thead>
+    <tr>
+        <th>Файл</th>
+        <th>Команда</th>
+        <th>Описание</th>
+        <th>Статус</th>
+        <th>Действия</th>
+    </tr>
+    </thead>
+    <tbody id="list"></tbody>
+</table>
+
+<hr>
+<h3>Загрузить новый (Компиляция)</h3>
+<textarea id="code" style="width:100%; height:150px; background:#111; color:#0f0; border:1px solid #555;">
+#include "api.h"
 #include <string>
-#include <cstring>
-
-extern "C" EXPORT const char* get_name() {
-    return "test";
-}
-
-extern "C" EXPORT const char* get_description() {
-    return "Тестовая команда";
-}
-
-extern "C" EXPORT const char* handle_message(const char* sender, const char* text) {
-    static std::string res = "Hello world!";
-    return res.c_str();
-}
-        </textarea>
-        <div class="actions">
-            <span id="compileStatus" class="status"></span>
-            <button class="action-btn" id="compileBtn" onclick="compileCode()">Скомпилировать и Загрузить</button>
-        </div>
-    </div>
-
-    <!-- Вкладка 2: Управление -->
-    <div id="manage" class="tab-content">
-        <h3 style="margin-top:0;">Загруженные библиотеки</h3>
-        <table>
-            <thead>
-            <tr>
-                <th>Команда (#)</th>
-                <th>Описание</th>
-                <th>Файл (.dll/.so)</th>
-                <th>Действие</th>
-            </tr>
-            </thead>
-            <tbody id="pluginTable">
-            <!-- JS заполнит это -->
-            </tbody>
-        </table>
-        <p id="manageStatus" class="status" style="margin-top:20px;"></p>
-    </div>
-</div>
+extern "C" EXPORT const char* get_name() { return "test"; }
+extern "C" EXPORT const char* get_description() { return "New plugin"; }
+extern "C" EXPORT const char* handle_message(const char* s, const char* t) { return "Works!"; }
+</textarea>
+<button onclick="compile()" style="margin-top:10px; padding:10px 20px;">Скомпилировать</button>
 
 <script>
-    // --- TABS LOGIC ---
-    function openTab(tabName) {
-        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    function loadList() {
+        fetch('/list').then(r => r.json()).then(data => {
+            const list = document.getElementById('list');
+            list.innerHTML = "";
+            data.forEach(p => {
+                let actions = "";
 
-        document.getElementById(tabName).classList.add('active');
-        // Находим кнопку, которая вызвала эту вкладку (по тексту кнопки можно или по индексу, но проще через event, здесь упрощенно)
-        const btns = document.querySelectorAll('.tab-btn');
-        if(tabName === 'create') btns[0].classList.add('active');
-        if(tabName === 'manage') {
-            btns[1].classList.add('active');
-            loadPlugins(); // Загружаем список при открытии вкладки
-        }
-    }
-
-    // --- COMPILE LOGIC ---
-    function compileCode() {
-        const code = document.getElementById('code').value;
-        const btn = document.getElementById('compileBtn');
-        const status = document.getElementById('compileStatus');
-
-        btn.disabled = true;
-        status.innerText = "Компиляция...";
-        status.className = "status";
-
-        const filename = "plugin_" + Date.now();
-        const body = `filename=${encodeURIComponent(filename)}&code=${encodeURIComponent(code)}`;
-
-        fetch('/compile', { method: 'POST', body: body })
-            .then(r => r.text())
-            .then(data => {
-                if(data.includes("Success")) {
-                    status.innerText = "Успешно загружено!";
-                    status.classList.add("ok");
+                if (p.status === 'active') {
+                    // Если активен: Выключить | Удалить
+                    actions += `<button class="btn btn-unload" onclick="doAction('unload', '${p.filename}', '${p.cmd}')">Выключить</button>`;
+                    actions += `<button class="btn btn-del" onclick="doAction('delete', '${p.filename}', '${p.cmd}')">Удалить</button>`;
                 } else {
-                    status.innerText = "Ошибка компиляции";
-                    status.classList.add("err");
-                    alert(data);
+                    // Если выключен: Включить | Удалить
+                    actions += `<button class="btn btn-load" onclick="doAction('load', '${p.filename}', '')">Включить</button>`;
+                    actions += `<button class="btn btn-del" onclick="doAction('delete', '${p.filename}', '')">Удалить</button>`;
                 }
-            })
-            .catch(e => { status.innerText = "Ошибка сети"; status.classList.add("err"); })
-            .finally(() => btn.disabled = false);
-    }
 
-    // --- MANAGE LOGIC ---
-    function loadPlugins() {
-        const tbody = document.getElementById('pluginTable');
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center">Загрузка...</td></tr>';
-
-        fetch('/list')
-            .then(r => r.json())
-            .then(data => {
-                tbody.innerHTML = "";
-                if(data.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#666;">Нет активных плагинов</td></tr>';
-                    return;
-                }
-                data.forEach(p => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                    <td style="font-weight:bold; color:#fff">#${p.name}</td>
+                const row = `<tr>
+                    <td>${p.filename}</td>
+                    <td>${p.cmd ? '#' + p.cmd : '-'}</td>
                     <td>${p.desc}</td>
-                    <td style="font-family:monospace; font-size:12px; color:#888;">${p.file}</td>
-                    <td>
-                        <button class="del-btn" onclick="deletePlugin('${p.name}')">Удалить</button>
-                    </td>
-                `;
-                    tbody.appendChild(tr);
-                });
-            })
-            .catch(e => tbody.innerHTML = '<tr><td colspan="4" style="color:red">Ошибка загрузки списка</td></tr>');
+                    <td class="status-${p.status}">${p.status.toUpperCase()}</td>
+                    <td>${actions}</td>
+                </tr>`;
+                list.innerHTML += row;
+            });
+        });
     }
 
-    function deletePlugin(name) {
-        if(!confirm(`Вы точно хотите удалить команду #${name}?`)) return;
+    function doAction(action, filename, cmd) {
+        if(action === 'delete' && !confirm('Удалить файл навсегда?')) return;
 
-        fetch('/delete', { method: 'POST', body: `name=${name}` })
+        fetch('/manage', {
+            method: 'POST',
+            body: `action=${action}&file=${encodeURIComponent(filename)}&cmd=${encodeURIComponent(cmd)}`
+        }).then(r => r.text()).then(msg => {
+            document.getElementById('status').innerText = msg;
+            loadList();
+        });
+    }
+
+    function compile() {
+        const code = document.getElementById('code').value;
+        const fname = "plugin_" + Date.now();
+        fetch('/compile', { method:'POST', body:`filename=${fname}&code=${encodeURIComponent(code)}` })
             .then(r => r.text())
-            .then(res => {
-                const status = document.getElementById('manageStatus');
-                status.innerText = res;
-                status.classList.add(res.includes("выгружен") ? "ok" : "err");
-                loadPlugins(); // Обновляем таблицу
+            .then(msg => {
+                document.getElementById('status').innerText = msg;
+                loadList();
             });
     }
+
+    loadList();
 </script>
 
 </body>

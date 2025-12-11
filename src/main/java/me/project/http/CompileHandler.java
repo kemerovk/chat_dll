@@ -10,6 +10,15 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+/*
+1. Принимает C++ код из браузера.
+2. Сохраняет его во временный .cpp файл, добавляя нужные заголовки (#include).
+3. Запускает системную команду g++ (как в терминале), чтобы превратить текст в библиотеку (.dll или .so).
+4. Загружает: Если компиляция прошла успешно, он вызывает метод сервера loadPluginSafe для подключения плагина.
+5. Отвечает: Возвращает браузеру "Success" или текст ошибки, после чего удаляет временный файл исходного кода.
+ */
+
+
 public class CompileHandler implements HttpHandler {
     @Override
     public void handle(HttpExchange t) throws IOException {

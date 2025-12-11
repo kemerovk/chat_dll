@@ -6,8 +6,10 @@ import me.project.http.*;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
@@ -108,14 +110,30 @@ public class ChatServer {
             LoadedPlugin plugin = new LoadedPlugin(lib, originalFile.getName(), tempFile);
 
             plugins.put(plugin.name, plugin);
-            System.out.println(" [+] Loaded #" + plugin.name);
 
+            // --- НОВОЕ: Сохраняем инфо в файл, чтобы помнить его при выгрузке ---
+            saveMetaInfo(originalFile, plugin.name, plugin.description);
+            // -------------------------------------------------------------------
+
+            System.out.println(" [+] Loaded #" + plugin.name);
             tempFile.deleteOnExit();
 
-            return plugin; // <-- ВОЗВРАЩАЕМ ОБЪЕКТ
+            return plugin;
         } catch (Throwable e) {
             System.err.println(" [-] Error loading " + originalFile.getName() + ": " + e.getMessage());
-            return null; // <-- Возвращаем null при ошибке
+            return null;
+        }
+    }
+
+    // --- НОВЫЙ МЕТОД ---
+    private static void saveMetaInfo(File dllFile, String name, String desc) {
+        // Создаем файл с таким же именем, но расширением .txt
+        File meta = new File(dllFile.getParent(), dllFile.getName() + ".txt");
+        try (PrintWriter w = new PrintWriter(meta, StandardCharsets.UTF_8)) {
+            w.println(name);
+            w.println(desc);
+        } catch (IOException e) {
+            System.err.println("Failed to save meta for " + name);
         }
     }
 

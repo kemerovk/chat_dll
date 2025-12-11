@@ -79,6 +79,9 @@ public class ManageHandler implements HttpHandler {
 
                 // 3. Удаляем файл
                 if (file.exists() && file.delete()) {
+
+                    File meta = new File("plugins", filename + ".txt");
+                    if (meta.exists()) meta.delete();
                     ChatServer.broadcast("🗑️ Плагин " + displayName + " удален насовсем.", "System", true);
                     response = "Файл удален окончательно.";
                 } else {
